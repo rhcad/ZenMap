@@ -27,21 +27,21 @@ function linearRegression(data) {
 
 // 根据id或名号得到节点数据
 function findNode(id) {
-  return patriarchs.filter(p => p.id === id)[0]
+  return patriarchs.filter(p => p.id === id || p.name === id)[0]
 }
 
-// 根据上级名号得到下一级节点
+// 根据上级名号得到下一级树节点
 function findNodes(parent, group) {
-  return patriarchs.filter(p => p.parent.indexOf(parent) >= 0)
+  return patriarchs.filter(p => p.parent.indexOf(parent) >= 0) // p.parent 可能以…开头
     .map(p => {
       const a_attr = { title: '' }
 
       p.group = group
       if (p.alias.length) {
         console.assert(Array.isArray(p.alias), p.name + ': invalid alias')
-        a_attr.title += p.name + '(' + p.alias.join(', ') + ')\n'
+        a_attr.title += p.name + '(' + p.alias.join(', ') + ')\n' // 节点提示文本
         p.alias.forEach(alia => {
-          if (/[宗派系]$/.test(alia)) {
+          if (/[宗派系]$/.test(alia)) { // 提取为派系名
             p.group = alia
             p.alias.splice(p.alias.indexOf(alia), 1)
           }
@@ -60,7 +60,7 @@ function findNodes(parent, group) {
     })
 }
 
-let lngS = 0, latS = 0
+let lngS = 0, latS = 0 // 经纬度到SVG坐标的系数
 let draw;
 const svgTmp = {}
 const svgTooltip = document.getElementById('tooltip')
@@ -83,14 +83,14 @@ function search(text) {
   let lastScore = 0.8
 
   $searchResult.html('')
-  fuse.search(text).slice(0, 20).forEach(s => {
-    if (lastScore > s.score - 0.3) {
+  fuse.search(text).slice(0, 20).forEach(s => { // 取前20个结果，分值从低到高，0为完全匹配，1为完全不匹配
+    if (lastScore > s.score - 0.3) { // 遇到分值跳到较大(更不匹配)的结果就停止
       const $r = $('<div class="search-item"/>').data('id', s.item.id)
 
-      if (!s.matches.filter(m => m.key === 'name')[0]) {
+      if (!s.matches.filter(m => m.key === 'name')[0]) { // 确保有人名
         $('<span class="s-name"/>').appendTo($r).text(s.item.name)
       }
-      s.matches.forEach(m => {
+      s.matches.forEach(m => { // 对匹配部分加粗
         let t = m.value
         m.indices.reverse()
         m.indices.forEach(d => {
@@ -112,7 +112,7 @@ function clickNode(id) {
     tree.select_node(id)
     hideSearchList(true)
   }
-  return false
+  return false // break event
 }
 
 function showSearchList() {
@@ -120,7 +120,7 @@ function showSearchList() {
   searchResult.timer = setTimeout(() => $searchResult.show(), 50)
 }
 
-function hideSearchList(force) {
+function hideSearchList(force=false) {
   setTimeout(function () {
     if ($searchResult.is(':visible')) {
       clearTimeout(searchResult.timer)
@@ -129,7 +129,6 @@ function hideSearchList(force) {
   }, 50)
   onCircleLeave()
 }
-
 
 // 地点圆点的鼠标滑入消息响应
 function onCircleEnter(e) {
@@ -150,7 +149,8 @@ function onCircleLeave() {
   svgTmp.tmTip = setTimeout(() => svgTooltip.toggleAttribute('hidden', true), 200)
 }
 
-function showChildren(people, $content) {
+// 显示给定多个人的地点圆点、地点对应的各个人名的列表
+function showChildren(people, $content=null) {
   const nodes = {}
 
   people.forEach(p => {
@@ -169,7 +169,7 @@ function showChildren(people, $content) {
     coordinates: Object.keys(nodes).map(s => nodes[s].coordinate)
   })
   if ($content) {
-    const $temples = $('<div class="row temples"/>').appendTo($content)
+    const $temples = $('<div class="row temples-map"/>').appendTo($content)
     const temples = Object.keys(nodes)
 
     temples.sort((a, b) => templeMap[a] < templeMap[b] ? -1 : templeMap[a] > templeMap[b] ? 1 : 0)
@@ -183,6 +183,7 @@ function showChildren(people, $content) {
   }
 }
 
+// 用部分省会的经纬度对准拟合SVG坐标
 function adjustMap(op) {
   const d1 = [], d2 = []
   const paths = Array.from(document.querySelectorAll('#map path[lng][lat]'))
@@ -202,22 +203,23 @@ function adjustMap(op) {
   // console.log(d1.map(p => [p.id, p.x * lngS.a + lngS.b - p.y]))
   // console.log(d2.map(p => [p.id, p.x * latS.a + latS.b - p.y]))
 
-  if (op === 'adjust') {
+  if (op === 'adjust') { // 显示拟合效果
     addCircles({
       temples: paths.map(p => p.getAttribute('id')),
       coordinates: d1.map((a, i) => a.x + ',' + d2[i].x)
     })
-  } else if (op === 'city') {
+  } else if (op === 'city') { // 显示省会地点
     const cities = Object.keys(templeMap).filter(s => s.length === 2)
     addCircles({
       temples: cities,
       coordinates: cities.map(s => /@(.+)$/.exec(templeMap[s])[1])
     })
-  } else if (op === 'all') {
-    showChildren(patriarchs, $('#info'));
+  } else if (op === 'all') { // 显示所有人的地点圆点、地点对应的各个人名的列表
+    showChildren(patriarchs, $('#info'))
   }
 }
 
+// 显示地点圆点
 function addCircles(data, extra='', animate=false) {
   draw = draw || SVG($('#map svg')[0])
   data.temples.forEach((temple, i) => {
@@ -225,7 +227,7 @@ function addCircles(data, extra='', animate=false) {
     const r = data.name ? 3 : 2
 
     if (coordinate.length > 1) {
-      const c = SVG(`<circle tmp r="${animate ? 6 : r}"
+      const c = SVG(`<circle tmp r="${animate ? 8 : r}"
  cx="${Math.round((lngS.a * coordinate[0] + lngS.b) * 100) / 100}"
  cy="${Math.round((latS.a * coordinate[1] + latS.b) * 100) / 100}"
  data-title="${extra ? data.name + ': ' : ''}${temple}"
@@ -233,32 +235,36 @@ function addCircles(data, extra='', animate=false) {
         .click(() => setInput(/,/.test(temple) ? temple.split(/[: ]/g)[0] : temple.replace(/^.+:/, '')))
 
       if (animate) {
-        c.animate(300, 200).attr({ r: r })
+        c.animate(500, 300).attr({ r: r })
       }
     }
   })
 }
 
+// 设置搜索框文本
 function setInput(text) {
   search(text)
   $('#search-box').val(text)
   showSearchList()
+  return false // break event
 }
 
-function updateContent(id, parents, data) {
+// 显示指定节点id的内容
+function updateContent(id, parents=null, data=null) {
   const $content = $('#info').html('')
 
   if (isTouch) {
     $('iframe').remove()
     $('#right').show()
   }
-  $('#search-box').val('')
-  $('#map [tmp]').remove()
-  adjustMap(id)
-  if (!id || !data || !parents) {
+  $('#search-box').val('') // 搜索框清空
+  $('#map [tmp]').remove() // 清除地点圆点
+  adjustMap(id) // 更新显示比例，可能显示特殊地点
+  if (!id || !data || !parents) { // 要显示当前一个人的内容才继续
     return
   }
 
+  // 显示上一级人的地点，本人地点动画显示
   addCircles(findNode(parents[0]) || {temples: []}, 'fill="rgba(30,150,30,.7)"')
   addCircles(data, null, true)
 
@@ -295,21 +301,22 @@ function updateContent(id, parents, data) {
     const xy = (data.coordinates[i] || '').split(',')
 
     if (templeName !== temple) {
-      const $templeName = $(`<span class="temple-name">${templeName}</span>`).prependTo($temple)
+      const $templeName = $(`<span class="temple-name"><span>${templeName}</span></span>`).prependTo($temple)
       if (sames.length) {
         $templeName.append(`<sup title="${sames.map(p => p.name).join('\n')}">${sames.length + 1}</sup>`)
         $templeName.addClass('has-sames').click(() => setInput(templeName))
       }
-      if (xy.length === 2 && !/[?-]$/.test(temple)) {
+      if (xy.length === 2 && !/[?-]$/.test(temple)) { // 不是可疑地点时显示地图按钮
         const url = `https://map.bmcx.com/#y=amap&l=ditu&z=16&lat=${xy[1]}&lng=${xy[0]}`
         $(`<span class="map">🌐</span>`).appendTo($temple)
           .click(() => {
-            if (isTouch) {
+            if (isTouch) { // 触控设备上内嵌加载地图
               $('#right').hide().parent()
                 .append(`<iframe src="${url}" class="right" width="100%" height="100%" frameborder="0"></iframe>`)
-            } else {
+            } else { // 鼠标设备上另打开地图页面
               window.open(url)
             }
+            return false // break event
           })
       }
     }
