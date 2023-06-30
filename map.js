@@ -79,11 +79,11 @@ const fuse = new Fuse(patriarchs, {
 })
 
 // 根据文本搜索并显示结果列表
-function search(text) {
+function search(text, maxCount=0) {
   let lastScore = 0.8
 
   $searchResult.html('')
-  fuse.search(text).slice(0, 20).forEach(s => { // 取前20个结果，分值从低到高，0为完全匹配，1为完全不匹配
+  fuse.search(text).slice(0, maxCount || 20).forEach(s => { // 取前20个结果，分值从低到高，0为完全匹配，1为完全不匹配
     if (lastScore > s.score - 0.3) { // 遇到分值跳到较大(更不匹配)的结果就停止
       const $r = $('<div class="search-item"/>').data('id', s.item.id)
 
@@ -161,7 +161,7 @@ function showChildren(people, $content=null) {
       }
     })
   })
-  addCircles({
+  const hi = addCircles({
     temples: Object.keys(nodes).map(s => {
       const n = nodes[s].names.length
       return `${s}${n > 1 ? ' ' + n : ''}: ` + nodes[s].names.join(', ')
@@ -172,12 +172,21 @@ function showChildren(people, $content=null) {
     const $temples = $('<div class="row temples-map"/>').appendTo($content)
     const temples = Object.keys(nodes)
 
-    temples.sort((a, b) => templeMap[a] < templeMap[b] ? -1 : templeMap[a] > templeMap[b] ? 1 : 0)
+    temples.sort((a, b) => {
+      a = templeMap[a].replace(templeRe, '')
+      b = templeMap[b].replace(templeRe, '')
+      return a < b ? -1 : a > b ? 1 : 0
+    })
     temples.forEach(temple => {
       const $row = $('<div class="row">: </div>').appendTo($temples)
-      $(`<span class="t-head">${temple}</span>`).prependTo($row).click(() => setInput(temple))
+
+      $(`<span class="t-head">${temple}</span>`).prependTo($row)
+        .click(() => hi(temple) || setInput(temple, 1))
+      addMapSpan($row, nodes[temple].coordinate, temple).prependTo($row)
+
       nodes[temple].names.forEach(name => {
-        $(`<span class="t-name">${name}</span>`).appendTo($row).click(() => setInput(name))
+        $(`<span class="t-name">${name}</span>`).appendTo($row)
+          .click(() => ensureNodeVisible(findNode(name).id) || hi(temple) || setInput(name, 1))
       })
     })
   }
@@ -219,8 +228,9 @@ function adjustMap(op) {
   }
 }
 
-// 显示地点圆点
+// 显示地点圆点，返回动态亮显函数
 function addCircles(data, extra='', animate=false) {
+  const circles = []
   draw = draw || SVG($('#map svg')[0])
   data.temples.forEach((temple, i) => {
     const coordinate = (data.coordinates[i] || '').split(',').map(s => parseFloat(s))
@@ -237,16 +247,67 @@ function addCircles(data, extra='', animate=false) {
       if (animate) {
         c.animate(500, 300).attr({ r: r })
       }
+      circles.push({ c: c, temple: temple })
     }
   })
+
+  return function (text) {
+    for (let i = 0; i < circles.length; i++) {
+      if (circles[i].temple.indexOf(text) >= 0) {
+        circles[i].c.attr({ r: 8 }).animate(500, 300).attr({ r: 3 })
+        break
+      }
+    }
+  }
 }
 
 // 设置搜索框文本
-function setInput(text) {
-  search(text)
+function setInput(text, maxCount=0) {
+  search(text, maxCount)
   $('#search-box').val(text)
   showSearchList()
   return false // break event
+}
+
+function ensureNodeVisible(id) {
+  const instance = $.jstree.reference('#name-tree')
+  const node = instance.get_node(id)
+  const parents = node.parents.slice(0, -1)
+  const loop = (i, ended) => i >= 0 ? instance.open_node(parents[i], () => loop(i - 1, ended)) : ended()
+
+  parents.splice(0, 0, id)
+  loop(parents.length - 1, () => setTimeout(() => {
+    let dom = instance.get_node(id, true)
+
+    dom = dom && dom.find('a')[0]
+    if (dom) {
+      dom.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+    }
+  }, 200))
+}
+
+function addMapSpan($row, coordinate, temple) {
+  const xy = Array.isArray(coordinate) ? coordinate : (coordinate || '').split(',')
+  const url = `https://map.bmcx.com/#y=amap&l=ditu&z=16&lat=${xy[1]}&lng=${xy[0]}`
+  const $span = $(`<span class="map">🌐</span>`).toggle(xy.length === 2)
+
+  if (xy.length === 2 && !/[?]$/.test(temple)) {
+    $span.appendTo($row).click(() => {
+      if (isTouch) { // 触控设备上内嵌加载地图
+        const $p = $(`<div class="right rt-map"/>`).appendTo($('#right').hide().parent())
+        const place = templeMap[temple].replace(/\s*[?@-].+$/, '')
+
+        $(`<div class="close-map">× ${temple === place ? '' : temple + ':'} ${place}<span>×</span></div>`).appendTo($p)
+          .click(() => $('iframe,.close-map,.rt-map').remove() && $('#right').show())
+        $(`<iframe src="${url}" width="100%" height="100%" frameborder="0">不支持</iframe>`).appendTo($p)
+      } else { // 鼠标设备上另打开地图页面
+        window.open(url)
+      }
+      return false // break event
+    })
+  }
+
+  return $span
 }
 
 // 显示指定节点id的内容
@@ -254,7 +315,7 @@ function updateContent(id, parents=null, data=null) {
   const $content = $('#info').html('')
 
   if (isTouch) {
-    $('iframe').remove()
+    $('iframe,.close-map,.rt-map').remove()
     $('#right').show()
   }
   $('#search-box').val('') // 搜索框清空
@@ -266,7 +327,7 @@ function updateContent(id, parents=null, data=null) {
 
   // 显示上一级人的地点，本人地点动画显示
   addCircles(findNode(parents[0]) || {temples: []}, 'fill="rgba(30,150,30,.7)"')
-  addCircles(data, null, true)
+  const hi = addCircles(data, null, true)
 
   const $nameRow = $('<div class="row names"/>').appendTo($content)
   const $templesList = $('<div class="row temples"/>').appendTo($content)
@@ -296,37 +357,27 @@ function updateContent(id, parents=null, data=null) {
   }
   data.templesFull.forEach((temple, i) => {
     const templeName = data.temples[i]
-    const $temple = $(`<div class="row temple">${temple.replace(/[?-]$/, '')}</div>`).appendTo($templesList)
+    const $row = $(`<div class="row temple"><span class="text">${temple.replace(/[?-]$/, '')}</span></div>`)
+      .appendTo($templesList).click(() => hi(templeName))
     const sames = patriarchs.filter(p => p.id !== id && p.temples.filter(t => t === templeName).length)
-    const xy = (data.coordinates[i] || '').split(',')
 
     if (templeName !== temple) {
-      const $templeName = $(`<span class="temple-name"><span>${templeName}</span></span>`).prependTo($temple)
+      const $templeName = $(`<span class="temple-name"><span>${templeName}</span></span>`).prependTo($row)
       if (sames.length) {
         $templeName.append(`<sup title="${sames.map(p => p.name).join('\n')}">${sames.length + 1}</sup>`)
-        $templeName.addClass('has-sames').click(() => setInput(templeName))
+        $templeName.addClass('has-sames').click(() => hi(templeName) || setInput(templeName))
       }
-      if (xy.length === 2 && !/[?-]$/.test(temple)) { // 不是可疑地点时显示地图按钮
-        const url = `https://map.bmcx.com/#y=amap&l=ditu&z=16&lat=${xy[1]}&lng=${xy[0]}`
-        $(`<span class="map">🌐</span>`).appendTo($temple)
-          .click(() => {
-            if (isTouch) { // 触控设备上内嵌加载地图
-              $('#right').hide().parent()
-                .append(`<iframe src="${url}" class="right" width="100%" height="100%" frameborder="0"></iframe>`)
-            } else { // 鼠标设备上另打开地图页面
-              window.open(url)
-            }
-            return false // break event
-          })
-      }
+      addMapSpan($row, data.coordinates[i], templeName)
     }
   })
   if (parents.length > 1) {
     const $parents = $(`<div class="row parents">${data.name.replace(dummy, '…')}</div>`).prependTo($content)
-    parents.slice(0, -1).forEach(pid => {
-      const data = findNode(pid)
-      $(`<span>${data.name.replace(dummy, '…')}</span>`).prependTo($parents)
-        .click(() => !dummy.test(data.name) && clickNode(pid))
+    parents.slice(0, -1).forEach((pid, i) => {
+      const prev = findNode(i ? parents[i - 1] : data.id)
+      const parent = findNode(pid)
+      $(`<span>${parent.name.replace(dummy, '')}</span>`).prependTo($parents)
+        .toggleClass('omit', /…/.test(prev.parent) || dummy.test(parent.name))
+        .click(() => !dummy.test(parent.name) && clickNode(pid))
     })
   }
 }

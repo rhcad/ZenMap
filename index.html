@@ -35,7 +35,7 @@
         #search-box:focus:empty::placeholder { color: transparent; }
         #search-group { padding: 2px; }
 
-        #search-list { min-height: 60px; max-height: 200px; overflow-y: auto; z-index: 100; border-top: none; }
+        #search-list { min-height: 30px; max-height: 200px; overflow-y: auto; z-index: 100; border-top: none; }
         .search-item { padding: 2px; border: 1px solid transparent; margin: 2px; }
         .search-item:hover { border-color: #ddd; }
         .search-item b { font-weight: 500; color: #444; border-bottom: 1px dotted green; }
@@ -50,23 +50,31 @@
 
         .parents > * { display: inline-block; cursor: pointer; font-size: 0.95em; }
         .parents > span::after { content: "»"; color: gray; margin: 0 6px; }
+        .parents > span.omit::after { content: "…"; }
         .parents > span:hover { color: blueviolet; cursor: pointer; }
 
         .names { margin: 0.3em 0; }
         .names > .group { margin-right: 0.2em; color: #333; }
         .names > .name { font-weight: bold; font-size: 1.5em; margin-right: 0.3em; }
         .names small { color: #777; }
-        .temple-name.has-sames > span:first-child { cursor: pointer; border-bottom: 1px dotted #ccc; }
+        .temple-name > span, .temple > .text { cursor: pointer; }
+        .temple-name.has-sames > span:first-child { border-bottom: 1px dotted blueviolet; }
+        .temple-name > span:hover,
+        .temple > .text:hover,
+        .temple-name.has-sames > span:first-child:hover { border-bottom: 1px solid blueviolet; }
         .temple-name::after { content: ": "; color: gray; }
         .temple-name > sup { color: gray; }
-        .temple > .map {
-            display: inline-block; margin:  1px 0 1px 4px; padding: 1px 4px;
-            cursor: pointer; font-size: 0.9em;
-            border: 1px solid #ddd; border-radius: 4px;
-        }
+
+        .temple > .map, .row > .map { display: inline-block; cursor: pointer; font-size: 0.8em; }
+        .temple > .map { margin:  1px 0 1px 4px; padding: 1px 4px; }
+        .row > .map { margin-right: 0.4em; }
+
         .temples-map { max-height: 200px; overflow-y: auto; border-bottom: 1px solid #ddd; }
         .temples-map span:hover { color: blueviolet; cursor: pointer; }
         .t-name { margin-left: 0.5em; display: inline-block; }
+        .rt-map { display: flex; flex-direction: column; }
+        .rt-map > iframe { flex: 1; margin-top: 4px; }
+        .close-map > span:last-child { float: right; margin-right: 8px; }
     </style>
 </head>
 <body>
@@ -1935,8 +1943,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/svg.js/3.2.0/svg.min.js"></script>
-<script src="data.js"></script>
-<script src="map.js"></script>
+<script src="data.js?v=630"></script>
+<script src="map.js?v=630"></script>
 <script>
   $(function () {
     const $doc = $(document)
@@ -1962,29 +1970,20 @@
     // 点击右边区域没有其它响应时，隐藏结果列表
     $('#right').click(() => hideSearchList())
 
-    function ensureNodeVisible(data, id) {
-      let dom = data.instance.get_node(id, true)
-      dom = dom && dom.find('a')[0]
-      if (dom) {
-        dom.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
-      }
-    }
     $('#name-tree')
       .on('loaded.jstree', (e, data) => {
         const id = findNode('临济义玄').id
         data.instance.select_node(id, true)
         data.instance.deselect_all(true)
         hideSearchList()
-        setTimeout(() => ensureNodeVisible(data, id) || updateContent('all'), 10)
+        setTimeout(() => ensureNodeVisible(id) || updateContent('all'), 10)
       })
       .on('changed.jstree', (e, data) => {
         const id = data.selected[0]
         const node = data.instance.get_node(id)
 
-        ensureNodeVisible(data, id)
         hideSearchList()
-        updateContent(id, node.parents, node.data)
-        data.instance.open_node(id)
+        setTimeout(() => ensureNodeVisible(id) || updateContent(id, node.parents, node.data), 10)
       })
       .jstree({ core: {data: findNodes('#')} })
   })
