@@ -42,7 +42,12 @@ function findNodes(parent, group) {
         a_attr.title += p.name + '(' + p.alias.join(', ') + ')\n' // 节点提示文本
         p.alias.forEach(alia => {
           if (/[宗派系]$/.test(alia)) { // 提取为派系名
-            p.group = alia
+            if (/宗/.test(p.group) && !/宗/.test(alia)) {
+              p.group = /^(.+宗)/.exec(p.group)[1] + alia
+            } else {
+              p.group = alia
+            }
+            p.head = '☆'
             p.alias.splice(p.alias.indexOf(alia), 1)
           }
         })
@@ -52,7 +57,7 @@ function findNodes(parent, group) {
       }
       return {
         id: p.id,
-        text: p.name,
+        text: ((/…/.test(p.parent) ? '…' : p.head ? `<small>${p.head}</small>` : '') + p.name).replace(dummyRe, '…'),
         children: findNodes(p.name, p.group),
         data: p,
         a_attr: a_attr
@@ -64,6 +69,7 @@ let lngS = 0, latS = 0 // 经纬度到SVG坐标的系数
 let draw;
 const svgTmp = {}
 const svgTooltip = document.getElementById('tooltip')
+const dummyRe = /^(.+未知|…)$/
 
 const searchResult = {}
 var $searchResult = $('#search-list')
@@ -84,7 +90,7 @@ function search(text, maxCount=0) {
 
   $searchResult.html('')
   fuse.search(text).slice(0, maxCount || 20).forEach(s => { // 取前20个结果，分值从低到高，0为完全匹配，1为完全不匹配
-    if (lastScore > s.score - 0.3) { // 遇到分值跳到较大(更不匹配)的结果就停止
+    if (lastScore > s.score - 0.3 && !dummyRe.test(s.item.name)) { // 遇到分值跳到较大(更不匹配)的结果就停止
       const $r = $('<div class="search-item"/>').data('id', s.item.id)
 
       if (!s.matches.filter(m => m.key === 'name')[0]) { // 确保有人名
@@ -130,15 +136,19 @@ function hideSearchList(force=false) {
   onCircleLeave()
 }
 
-// 地点圆点的鼠标滑入消息响应
-function onCircleEnter(e) {
+function circleEnter(el, top, left) {
   setTimeout(() => {
     clearTimeout(svgTmp.tmTip)
-    svgTooltip.innerText = this.getAttribute('data-title')
-    svgTooltip.style.top = `${e.pageY - 50}px`
-    svgTooltip.style.left = `${e.pageX - 50}px`
+    svgTooltip.innerText = el.getAttribute('data-title') || el.getAttribute('title')
+    svgTooltip.style.top = `${top}px`
+    svgTooltip.style.left = `${left}px`
     svgTooltip.removeAttribute('hidden')
   }, 20)
+}
+
+// 地点圆点的鼠标滑入消息响应
+function onCircleEnter(e) {
+  circleEnter(this, e.pageY + 10, e.pageX - 50)
   e.preventDefault()
   e.stopImmediatePropagation()
 }
@@ -147,6 +157,11 @@ function onCircleEnter(e) {
 function onCircleLeave() {
   clearTimeout(svgTmp.tmTip)
   svgTmp.tmTip = setTimeout(() => svgTooltip.toggleAttribute('hidden', true), 200)
+}
+
+function getTempleTag(temple) {
+  const r = Object.entries(templeTags).filter(v => v[1].indexOf(temple) >= 0)[0]
+  return r && r[0]
 }
 
 // 显示给定多个人的地点圆点、地点对应的各个人名的列表
@@ -169,7 +184,7 @@ function showChildren(people, $content=null) {
     coordinates: Object.keys(nodes).map(s => nodes[s].coordinate)
   })
   if ($content) {
-    const $temples = $('<div class="row temples-map"/>').appendTo($content)
+    const $temples = $('<div class="row temples-map"/>')
     const temples = Object.keys(nodes)
 
     temples.sort((a, b) => {
@@ -178,17 +193,36 @@ function showChildren(people, $content=null) {
       return a < b ? -1 : a > b ? 1 : 0
     })
     temples.forEach(temple => {
+      const tag = getTempleTag(temple)
       const $row = $('<div class="row">: </div>').appendTo($temples)
+      const place = /([^?@-]+)/.exec(templeMap[temple])[1] + (tag ? ` (${tag})` : '')
+      const $head = $(`<span class="t-head" title="${place}">${temple}</span>`).prependTo($row)
 
-      $(`<span class="t-head">${temple}</span>`).prependTo($row)
-        .click(() => hi(temple) || setInput(temple, 1))
+      $head.click(function () {
+          hi(temple)
+          circleEnter(this, $('#map').position().top, $('#map').position().left + 10)
+          return setInput(temple, 1, false)
+        })
+      if (tag) {
+        $head.append(`<sup title="${tag}">✩</sup>`)
+      }
       addMapSpan($row, nodes[temple].coordinate, temple).prependTo($row)
 
       nodes[temple].names.forEach(name => {
-        $(`<span class="t-name">${name}</span>`).appendTo($row)
-          .click(() => ensureNodeVisible(findNode(name).id) || hi(temple) || setInput(name, 1))
+        const node = findNode(name)
+        const dynasty = toDynastyRange(node, true)
+        const title = [node.group || '', dynasty || ''].join(' ').trim()
+
+        $(`<span class="t-name" title="${title}">${name}</span>`).appendTo($row)
+          .click(function () {
+            ensureNodeVisible(node.id, true)
+            hi(temple)
+            circleEnter(this, $('#map').position().top, $('#map').position().left + 10)
+            return setInput(name, 1, false)
+          })
       })
     })
+    $temples.appendTo($content)
   }
 }
 
@@ -231,18 +265,26 @@ function adjustMap(op) {
 // 显示地点圆点，返回动态亮显函数
 function addCircles(data, extra='', animate=false) {
   const circles = []
+  const temples = data.temples.slice()
   draw = draw || SVG($('#map svg')[0])
-  data.temples.forEach((temple, i) => {
+
+  if (data.birthplace && !extra) {
+    console.assert(data.coordinates[temples.length])
+    temples.push('出生地')
+  }
+  temples.forEach((temple, i) => {
+    const birth = temple === '出生地'
     const coordinate = (data.coordinates[i] || '').split(',').map(s => parseFloat(s))
-    const r = data.name ? 3 : 2
+    const n = temple.split(',').length
+    const r = n > 1 ? Math.min(1 + n * 0.6, 7) : birth ? 4 : data.name ? 3 : 2
 
     if (coordinate.length > 1) {
-      const c = SVG(`<circle tmp r="${animate ? 8 : r}"
+      const c = SVG(`<circle tmp r="${animate ? (birth ? 8 : 15) : r}"
  cx="${Math.round((lngS.a * coordinate[0] + lngS.b) * 100) / 100}"
  cy="${Math.round((latS.a * coordinate[1] + latS.b) * 100) / 100}"
  data-title="${extra ? data.name + ': ' : ''}${temple}"
- ${extra || 'fill="rgba(0,0,0,.7)"'}/>`).addTo(draw)
-        .click(() => setInput(/,/.test(temple) ? temple.split(/[: ]/g)[0] : temple.replace(/^.+:/, '')))
+ ${extra || birth && 'stroke="rgba(0,80,0,.7)" fill="none"' || 'fill="rgba(0,0,80,.7)"'}/>`).addTo(draw)
+        .click(() => !birth && setInput(/,/.test(temple) ? temple.split(/[: ]/g)[0] : temple.replace(/^.+:/, '')))
 
       if (animate) {
         c.animate(500, 300).attr({ r: r })
@@ -254,7 +296,7 @@ function addCircles(data, extra='', animate=false) {
   return function (text) {
     for (let i = 0; i < circles.length; i++) {
       if (circles[i].temple.indexOf(text) >= 0) {
-        circles[i].c.attr({ r: 8 }).animate(500, 300).attr({ r: 3 })
+        circles[i].c.attr({ r: 15 }).animate(500, 300).attr({ r: 3 })
         break
       }
     }
@@ -262,16 +304,22 @@ function addCircles(data, extra='', animate=false) {
 }
 
 // 设置搜索框文本
-function setInput(text, maxCount=0) {
+function setInput(text, maxCount=0, showList=true) {
   search(text, maxCount)
   $('#search-box').val(text)
-  showSearchList()
+  if (showList) {
+    showSearchList()
+  }
   return false // break event
 }
 
-function ensureNodeVisible(id) {
+function ensureNodeVisible(id, select=false) {
   const instance = $.jstree.reference('#name-tree')
   const node = instance.get_node(id)
+
+  if (!node) {
+    return
+  }
   const parents = node.parents.slice(0, -1)
   const loop = (i, ended) => i >= 0 ? instance.open_node(parents[i], () => loop(i - 1, ended)) : ended()
 
@@ -283,22 +331,27 @@ function ensureNodeVisible(id) {
     if (dom) {
       dom.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
     }
+    if (select) {
+      instance.deselect_all(true)
+      instance.select_node(id, true)
+    }
   }, 200))
 }
 
 function addMapSpan($row, coordinate, temple) {
   const xy = Array.isArray(coordinate) ? coordinate : (coordinate || '').split(',')
   const url = `https://map.bmcx.com/#y=amap&l=ditu&z=16&lat=${xy[1]}&lng=${xy[0]}`
-  const $span = $(`<span class="map">🌐</span>`).toggle(xy.length === 2)
+  const $span = $(`<span class="map">地图</span>`).toggle(xy.length === 2)
 
   if (xy.length === 2 && !/[?]$/.test(temple)) {
     $span.appendTo($row).click(() => {
       if (isTouch) { // 触控设备上内嵌加载地图
+        const place = (templeMap[temple] || '').replace(/\s*[?@-].+$/, '') || temple
         const $p = $(`<div class="right rt-map"/>`).appendTo($('#right').hide().parent())
-        const place = templeMap[temple].replace(/\s*[?@-].+$/, '')
 
         $(`<div class="close-map">× ${temple === place ? '' : temple + ':'} ${place}<span>×</span></div>`).appendTo($p)
-          .click(() => $('iframe,.close-map,.rt-map').remove() && $('#right').show())
+          .click(() => exitMapMode())
+        $('body').addClass('map-mode')
         $(`<iframe src="${url}" width="100%" height="100%" frameborder="0">不支持</iframe>`).appendTo($p)
       } else { // 鼠标设备上另打开地图页面
         window.open(url)
@@ -310,17 +363,24 @@ function addMapSpan($row, coordinate, temple) {
   return $span
 }
 
+function exitMapMode() {
+  $('iframe,.close-map,.rt-map').remove()
+  $('body').removeClass('map-mode')
+  $('#right').show()
+}
+
 // 显示指定节点id的内容
 function updateContent(id, parents=null, data=null) {
   const $content = $('#info').html('')
 
   if (isTouch) {
-    $('iframe,.close-map,.rt-map').remove()
-    $('#right').show()
+    exitMapMode()
   }
+  hideSearchList()
   $('#search-box').val('') // 搜索框清空
   $('#map [tmp]').remove() // 清除地点圆点
   adjustMap(id) // 更新显示比例，可能显示特殊地点
+
   if (!id || !data || !parents) { // 要显示当前一个人的内容才继续
     return
   }
@@ -330,10 +390,11 @@ function updateContent(id, parents=null, data=null) {
   const hi = addCircles(data, null, true)
 
   const $nameRow = $('<div class="row names"/>').appendTo($content)
-  const $templesList = $('<div class="row temples"/>').appendTo($content)
+  const $templesList = $('<div class="row temples"/>')
+  const $parents = parents.length > 1 && $(`<div class="row parents">${data.name.replace(dummyRe, '…')}</div>`)
   const alias = data.alias.slice()
   const isYear = d => d && typeof d === 'number'
-  const dummy = /^.+未知$/
+  const dynasty = toDynastyRange(data)
 
   $(`<span class="name">${data.name}</span>`).appendTo($nameRow)
   if (data.group) {
@@ -342,7 +403,7 @@ function updateContent(id, parents=null, data=null) {
   if (alias.length) {
     $nameRow.append('(' + alias.join('，') + ')')
   }
-  if (dummy.test(data.name)) {
+  if (dummyRe.test(data.name)) {
     $nameRow.remove()
     const ids = [], scan = s => patriarchs.forEach(p => p.parent.indexOf(s) >= 0 &&
       ids.push(p.id) && scan(findNode(p.id).name))
@@ -353,7 +414,17 @@ function updateContent(id, parents=null, data=null) {
     $nameRow.append(' (' +
       (isYear(data.born) ? data.born : '?' + (data.born ? `<small>${data.born}</small>` : '')) + '～' +
       (isYear(data.dead) ? data.dead : '?' + (data.dead ? `<small>${data.dead}</small>` : '')) + ', ' +
-      toDynasty(data.born, 20) + '～' + toDynasty(data.dead, -5) + ')')
+      dynasty + ')')
+  } else if (dynasty) {
+    $nameRow.append(' (' + dynasty + ')')
+  }
+
+  if (data.birthplace) {
+    const $row = $(`<div class="row temple">出生地: <span class="text">${data.birthplace}</span></div>`)
+      .appendTo($templesList).click(() => hi('出生地'))
+    if (/[村镇]$/.test(data.birthplace)) {
+      addMapSpan($row, data.coordinates[data.temples.length], data.birthplace)
+    }
   }
   data.templesFull.forEach((temple, i) => {
     const templeName = data.temples[i]
@@ -370,14 +441,32 @@ function updateContent(id, parents=null, data=null) {
       addMapSpan($row, data.coordinates[i], templeName)
     }
   })
-  if (parents.length > 1) {
-    const $parents = $(`<div class="row parents">${data.name.replace(dummy, '…')}</div>`).prependTo($content)
-    parents.slice(0, -1).forEach((pid, i) => {
+  if ($parents) {
+    parents.forEach((pid, i) => {
+      if (pid === '#') {
+        return $(`<span>全部</span>`).prependTo($parents)
+          .click(() => updateContent('all'))
+      }
       const prev = findNode(i ? parents[i - 1] : data.id)
       const parent = findNode(pid)
-      $(`<span>${parent.name.replace(dummy, '')}</span>`).prependTo($parents)
-        .toggleClass('omit', /…/.test(prev.parent) || dummy.test(parent.name))
-        .click(() => !dummy.test(parent.name) && clickNode(pid))
+      const parentNote = /(\(.+)$/.exec(prev.parent)
+      const $parent = $(`<span>${parent.name.replace(dummyRe, '')}</span>`)
+
+      $parent.prependTo($parents)
+        .click(() => !dummyRe.test(parent.name) && clickNode(pid))
+      if (/…/.test(prev.parent) || dummyRe.test(parent.name)) {
+        $parent.attr('omit', '…')
+      } else if (parentNote) {
+        $parent.attr('omit', parentNote[0])
+      }
+      if (parent.head) {
+        $parent.attr('title', parent.group).prepend(`<small>${parent.head}</small>`)
+      }
     })
+  }
+
+  $templesList.appendTo($content)
+  if ($parents) {
+    $parents.prependTo($content)
   }
 }
