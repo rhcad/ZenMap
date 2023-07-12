@@ -67,7 +67,7 @@ function findNodes(parent, group) {
 
 let lngS = 0, latS = 0 // 经纬度到SVG坐标的系数
 let draw;
-const svgTmp = {}
+var svgTmp = {}
 const svgTooltip = document.getElementById('tooltip')
 const dummyRe = /^(.+未知|…)$/
 
@@ -169,7 +169,7 @@ function showChildren(people, $content=null) {
   const nodes = {}
 
   people.forEach(p => {
-    p.temples.forEach((temple, i) => {
+    p.templesAll.forEach((temple, i) => {
       if (p.coordinates[i]) {
         nodes[temple] = nodes[temple] || {names: [], coordinate: p.coordinates[i]}
         nodes[temple].names.push(p.name)
@@ -199,10 +199,10 @@ function showChildren(people, $content=null) {
       const $head = $(`<span class="t-head" title="${place}">${temple}</span>`).prependTo($row)
 
       $head.click(function () {
-          hi(temple)
-          circleEnter(this, $('#map').position().top, $('#map').position().left + 10)
-          return setInput(temple, 1, false)
-        })
+        hi(temple)
+        circleEnter(this, $('#map').position().top, $('#map').position().left + 10)
+        return setInput(temple, 1, false)
+      })
       if (tag) {
         $head.append(`<sup title="${tag}">✩</sup>`)
       }
@@ -223,6 +223,7 @@ function showChildren(people, $content=null) {
       })
     })
     $temples.appendTo($content)
+    $('.map.xy').text('\x20')
   }
 }
 
@@ -265,11 +266,12 @@ function adjustMap(op) {
 // 显示地点圆点，返回动态亮显函数
 function addCircles(data, extra='', animate=false) {
   const circles = []
-  const temples = data.temples.slice()
+  const temples = (data.templesAll || []).slice()
   draw = draw || SVG($('#map svg')[0])
 
   if (data.birthplace && !extra) {
     console.assert(data.coordinates[temples.length])
+    templeMap['出生地'] = data.birthplace + ' @' + data.coordinates[temples.length]
     temples.push('出生地')
   }
   temples.forEach((temple, i) => {
@@ -296,6 +298,7 @@ function addCircles(data, extra='', animate=false) {
   return function (text) {
     for (let i = 0; i < circles.length; i++) {
       if (circles[i].temple.indexOf(text) >= 0) {
+        console.log(templeMap[text])
         circles[i].c.attr({ r: 15 }).animate(500, 300).attr({ r: 3 })
         break
       }
@@ -332,21 +335,23 @@ function ensureNodeVisible(id, select=false) {
       dom.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
     }
     if (select) {
+      svgTmp.preventEvent = true
       instance.deselect_all(true)
       instance.select_node(id, true)
+      svgTmp.preventEvent = false
     }
   }, 200))
 }
 
 function addMapSpan($row, coordinate, temple) {
   const xy = Array.isArray(coordinate) ? coordinate : (coordinate || '').split(',')
-  const url = `https://map.bmcx.com/#y=amap&l=ditu&z=16&lat=${xy[1]}&lng=${xy[0]}`
-  const $span = $(`<span class="map">地图</span>`).toggle(xy.length === 2)
+  const url = `https://map.bmcx.com/#y=qq&l=ditu&z=16&lat=${xy[1]}&lng=${xy[0]}`
+  const place = (templeMap[temple] || '').replace(/\s*[@-].+$/, '') || temple
+  const $span = $(`<span class="map${/\?/.test(place) ? '' : ' xy'}">${/\?/.test(place) ? '方位' : ''}</span>`).toggle(xy.length === 2)
 
   if (xy.length === 2 && !/[?]$/.test(temple)) {
     $span.appendTo($row).click(() => {
       if (isTouch) { // 触控设备上内嵌加载地图
-        const place = (templeMap[temple] || '').replace(/\s*[?@-].+$/, '') || temple
         const $p = $(`<div class="right rt-map"/>`).appendTo($('#right').hide().parent())
 
         $(`<div class="close-map">× ${temple === place ? '' : temple + ':'} ${place}<span>×</span></div>`).appendTo($p)
@@ -386,7 +391,7 @@ function updateContent(id, parents=null, data=null) {
   }
 
   // 显示上一级人的地点，本人地点动画显示
-  addCircles(findNode(parents[0]) || {temples: []}, 'fill="rgba(30,150,30,.7)"')
+  addCircles(findNode(parents[0]) || {}, 'fill="rgba(30,150,30,.7)"')
   const hi = addCircles(data, null, true)
 
   const $nameRow = $('<div class="row names"/>').appendTo($content)
@@ -423,11 +428,11 @@ function updateContent(id, parents=null, data=null) {
     const $row = $(`<div class="row temple">出生地: <span class="text">${data.birthplace}</span></div>`)
       .appendTo($templesList).click(() => hi('出生地'))
     if (/[村镇]$/.test(data.birthplace)) {
-      addMapSpan($row, data.coordinates[data.temples.length], data.birthplace)
+      addMapSpan($row, data.coordinates[data.templesAll.length], data.birthplace)
     }
   }
-  data.templesFull.forEach((temple, i) => {
-    const templeName = data.temples[i]
+  data.templesFullAll.forEach((temple, i) => {
+    const templeName = data.templesAll[i]
     const $row = $(`<div class="row temple"><span class="text">${temple.replace(/[?-]$/, '')}</span></div>`)
       .appendTo($templesList).click(() => hi(templeName))
     const sames = patriarchs.filter(p => p.id !== id && p.temples.filter(t => t === templeName).length)
@@ -444,8 +449,8 @@ function updateContent(id, parents=null, data=null) {
   if ($parents) {
     parents.forEach((pid, i) => {
       if (pid === '#') {
-        return $(`<span>全部</span>`).prependTo($parents)
-          .click(() => updateContent('all'))
+        return $(`<span class="all">全部</span>`).prependTo($parents)
+          .click(() => (window.location = '#all'))
       }
       const prev = findNode(i ? parents[i - 1] : data.id)
       const parent = findNode(pid)
@@ -466,6 +471,7 @@ function updateContent(id, parents=null, data=null) {
   }
 
   $templesList.appendTo($content)
+  $('.map.xy').first().text('地图')
   if ($parents) {
     $parents.prependTo($content)
   }

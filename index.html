@@ -49,6 +49,7 @@
         }
 
         .parents > * { display: inline-block; cursor: pointer; font-size: 0.95em; }
+        .parents > span.all { font-weight: 600; }
         .parents > span::after { content: "»"; color: gray; margin: 0 6px; }
         .parents > span[omit]::after { content: attr(omit) " »"; }
         .parents > span:hover { color: blueviolet; cursor: pointer; }
@@ -59,15 +60,22 @@
         .names small { color: #777; }
         .temple-name > span, .temple > .text { cursor: pointer; }
         .temple-name.has-sames > span:first-child { border-bottom: 1px dotted blueviolet; }
+
         .temple-name > span:hover,
         .temple > .text:hover,
-        .temple-name.has-sames > span:first-child:hover { border-bottom: 1px solid blueviolet; }
+        .temple-name.has-sames > span:first-child:hover { color: blueviolet; }
         .temple-name::after { content: ": "; color: gray; }
         .temple-name > sup { color: gray; }
 
         .temple > .map, .row > .map { display: inline-block; cursor: pointer; font-size: 0.7em; }
-        .temple > .map { margin:  1px 0 1px 4px; padding: 1px 4px; }
+        .temple > .map { margin:  1px 0; padding: 1px 4px; }
         .row > .map { margin-right: 0.4em; }
+        .map.xy::before {
+            content: ""; display: inline-block;
+            width: 14px; height: 14px; margin-top: -4px;
+            background-image: url(location.png);
+            background-size: 100%; vertical-align: middle;
+        }
 
         .temples-map { max-height: 200px; overflow-y: auto; border-bottom: 1px solid #ddd; }
         .temples-map span:hover { color: blueviolet; cursor: pointer; }
@@ -1634,8 +1642,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/svg.js/3.2.0/svg.min.js"></script>
-<script src="data.js?v=702"></script>
-<script src="map.js?v=702"></script>
+<script src="data.js?v=709"></script>
+<script src="map.js?v=709"></script>
 <script>
   $(function () {
     const $doc = $(document)
@@ -1682,21 +1690,26 @@
         const id = findNode(id0 || '南岳怀让').id
 
         hideSearchList()
+        svgTmp.preventEvent = true
+        data.instance.select_node(id, true)
+        data.instance.deselect_all(true)
+        svgTmp.preventEvent = false
+
         if (!id0 || id0 === id) {
-          data.instance.select_node(id)
+          const node = data.instance.get_node(id)
+          setTimeout(() => ensureNodeVisible(id) || updateContent(id, node.parents, node.data), 10)
         } else {
-          data.instance.select_node(id, true)
-          data.instance.deselect_all(true)
-          $('#map>svg').attr('transform', 'translate(-40, -50) scale(1.2)')
           setTimeout(() => ensureNodeVisible(id) || updateContent('all'), 10)
         }
       })
       .on('select_node.jstree', (e, data) => {
-        const id = data.selected[0]
-        const node = data.instance.get_node(id)
+        if (!svgTmp.preventEvent) {
+          const id = data.selected[0]
+          const node = data.instance.get_node(id)
 
-        window.location = '#' + id
-        setTimeout(() => ensureNodeVisible(id) || updateContent(id, node.parents, node.data), 10)
+          window.location = '#' + id
+          setTimeout(() => ensureNodeVisible(id) || updateContent(id, node.parents, node.data), 10)
+        }
       })
       .jstree({ core: {data: findNodes('#')} })
 
@@ -1706,7 +1719,7 @@
 
       if (id !== instance.get_selected()[0]) {
         instance.deselect_all(true)
-        if (id) {
+        if (id && id !== 'all') {
           instance.select_node(id)
         } else {
           updateContent('all')
