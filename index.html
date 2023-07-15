@@ -1642,8 +1642,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.6.2/fuse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/svg.js/3.2.0/svg.min.js"></script>
-<script src="data.js?v=709"></script>
-<script src="map.js?v=709"></script>
+<script src="data.js?v=711"></script>
+<script src="map.js?v=711"></script>
 <script>
   $(function () {
     const $doc = $(document)
@@ -1687,7 +1687,7 @@
     $('#name-tree')
       .on('loaded.jstree', (e, data) => {
         const id0 = window.location.hash.substring(1)
-        const id = findNode(id0 || '南岳怀让').id
+        const id = (findNode(id0) || findNode('南岳怀让')).id
 
         hideSearchList()
         svgTmp.preventEvent = true

@@ -77,7 +77,7 @@ var isTouch = 'ontouchstart' in document.documentElement
 
 // 模糊搜索
 const fuse = new Fuse(patriarchs, {
-  keys: ['name', 'alias', 'temples', 'templesFull'],
+  keys: ['name', 'alias', 'temples', 'templesFull', 'birthplace'],
   minMatchCharLength: 2,
   includeScore: true,
   includeMatches: true,
@@ -169,7 +169,7 @@ function showChildren(people, $content=null) {
   const nodes = {}
 
   people.forEach(p => {
-    p.templesAll.forEach((temple, i) => {
+    p.temples.forEach((temple, i) => {
       if (p.coordinates[i]) {
         nodes[temple] = nodes[temple] || {names: [], coordinate: p.coordinates[i]}
         nodes[temple].names.push(p.name)
@@ -177,7 +177,7 @@ function showChildren(people, $content=null) {
     })
   })
   const hi = addCircles({
-    temples: Object.keys(nodes).map(s => {
+    templesAll: Object.keys(nodes).map(s => {
       const n = nodes[s].names.length
       return `${s}${n > 1 ? ' ' + n : ''}: ` + nodes[s].names.join(', ')
     }),
@@ -203,6 +203,9 @@ function showChildren(people, $content=null) {
         circleEnter(this, $('#map').position().top, $('#map').position().left + 10)
         return setInput(temple, 1, false)
       })
+      if (nodes[temple].names.length > 2) {
+        $head.append(`<small>(${nodes[temple].names.length})</small>`)
+      }
       if (tag) {
         $head.append(`<sup title="${tag}">✩</sup>`)
       }
@@ -270,7 +273,7 @@ function addCircles(data, extra='', animate=false) {
   draw = draw || SVG($('#map svg')[0])
 
   if (data.birthplace && !extra) {
-    console.assert(data.coordinates[temples.length])
+    console.assert(data.coordinates[temples.length], data.birthplace + ' no coordinate')
     templeMap['出生地'] = data.birthplace + ' @' + data.coordinates[temples.length]
     temples.push('出生地')
   }
